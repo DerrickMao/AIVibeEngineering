@@ -7,7 +7,7 @@
 
 import json
 import streamlit as st
-from structured_agent import FieldDefinition, StructuredAgent
+from structured_agent import EnumValueDefinition, FieldDefinition, StructuredAgent
 
 # ──────────────────────────────────────────────
 # 页面设置
@@ -28,12 +28,24 @@ if "fields" not in st.session_state:
             "field_type": "enum",
             "description": "文章最匹配的标签",
             "enum_values": ["宏观经济", "行业研究", "个股分析"],
+            "enum_definitions": [
+                {"value": "宏观经济", "description": "讨论GDP、货币政策、财政政策、通胀等宏观层面话题",
+                 "positive_examples": ["央行宣布降息25个基点"], "negative_examples": ["某公司发布新产品（应归为个股分析）"]},
+                {"value": "行业研究", "description": "分析某一行业整体趋势、竞争格局、政策影响",
+                 "positive_examples": ["新能源行业2024年展望"], "negative_examples": ["某公司财报解读（应归为个股分析）"]},
+                {"value": "个股分析", "description": "针对单一公司的基本面、估值、业绩分析",
+                 "positive_examples": ["某公司Q3营收同比增长30%"], "negative_examples": ["半导体行业整体景气度回升（应归为行业研究）"]},
+            ],
+            "min_value": None,
+            "max_value": None,
         },
         {
             "name": "confidence",
             "display_name": "置信度",
             "field_type": "float",
             "description": "模型对该标签判断的置信度",
+            "enum_values": None,
+            "enum_definitions": None,
             "min_value": 0.0,
             "max_value": 1.0,
         },
@@ -42,6 +54,10 @@ if "fields" not in st.session_state:
             "display_name": "判定理由",
             "field_type": "string",
             "description": "判定该标签的理由，50字以内",
+            "enum_values": None,
+            "enum_definitions": None,
+            "min_value": None,
+            "max_value": None,
         },
     ]
 
@@ -120,6 +136,18 @@ with tab_schema:
                 if st.button("🗑️", key=f"del_field_{idx}"):
                     fields_to_delete.append(idx)
 
+            # 展示枚举值定义（描述 + 正反例）
+            if f["field_type"] in ("enum", "list[enum]") and f.get("enum_definitions"):
+                with st.expander(f"查看「{f['display_name']}」各枚举值的判定标准", expanded=False):
+                    for ed in f["enum_definitions"]:
+                        st.markdown(f"**{ed['value']}**")
+                        if ed.get("description"):
+                            st.markdown(f"  定义：{ed['description']}")
+                        if ed.get("positive_examples"):
+                            st.markdown(f"  正例：{'；'.join(ed['positive_examples'])}")
+                        if ed.get("negative_examples"):
+                            st.markdown(f"  反例：{'；'.join(ed['negative_examples'])}")
+
     for idx in sorted(fields_to_delete, reverse=True):
         st.session_state.fields.pop(idx)
         st.rerun()
@@ -142,6 +170,8 @@ with tab_schema:
     new_min = None
     new_max = None
 
+    new_enum_definitions = None
+
     if new_type in ("enum", "list[enum]"):
         enum_input = st.text_input(
             "枚举值（逗号分隔）",
@@ -149,6 +179,39 @@ with tab_schema:
         )
         if enum_input:
             new_enum_values = [v.strip() for v in enum_input.split(",") if v.strip()]
+
+        # 为每个枚举值添加详细定义
+        if new_enum_values:
+            st.markdown("**为每个枚举值添加判定标准（可选，提升标注准确率）：**")
+            new_enum_definitions = []
+            for ev_idx, ev in enumerate(new_enum_values):
+                with st.expander(f"定义「{ev}」", expanded=False):
+                    ev_desc = st.text_input(
+                        "定义描述",
+                        key=f"ev_desc_{ev_idx}",
+                        placeholder=f"什么样的内容应归为「{ev}」",
+                    )
+                    ev_pos = st.text_input(
+                        "正例（分号分隔，可选）",
+                        key=f"ev_pos_{ev_idx}",
+                        placeholder="典型的属于该标签的文本片段",
+                    )
+                    ev_neg = st.text_input(
+                        "反例（分号分隔，可选）",
+                        key=f"ev_neg_{ev_idx}",
+                        placeholder="容易误判为该标签但实际不属于的文本片段",
+                    )
+                    pos_list = [x.strip() for x in ev_pos.split("；") if x.strip()] if ev_pos else []
+                    neg_list = [x.strip() for x in ev_neg.split("；") if x.strip()] if ev_neg else []
+                    if ev_desc or pos_list or neg_list:
+                        new_enum_definitions.append({
+                            "value": ev,
+                            "description": ev_desc,
+                            "positive_examples": pos_list,
+                            "negative_examples": neg_list,
+                        })
+            if not new_enum_definitions:
+                new_enum_definitions = None
 
     if new_type in ("float", "int"):
         col_min, col_max = st.columns(2)
@@ -173,6 +236,7 @@ with tab_schema:
                 "field_type": new_type,
                 "description": new_desc,
                 "enum_values": new_enum_values,
+                "enum_definitions": new_enum_definitions,
                 "min_value": new_min,
                 "max_value": new_max,
             }
@@ -191,17 +255,36 @@ with tab_schema:
                 {"name": "industry", "display_name": "行业", "field_type": "enum",
                  "description": "文章所属的行业分类",
                  "enum_values": ["银行", "非银金融", "医药生物", "电子", "计算机", "食品饮料", "电力设备", "国防军工"],
+                 "enum_definitions": [
+                     {"value": "计算机", "description": "涉及软件开发、IT服务、云计算、信息安全、人工智能等计算机软硬件领域",
+                      "positive_examples": ["某国产数据库厂商获得大额政府订单", "AI大模型在金融风控中的应用"],
+                      "negative_examples": ["消费电子芯片出货量下滑（应归为电子）", "互联网平台广告收入增长（应归为传媒）"]},
+                     {"value": "电子", "description": "涉及半导体、消费电子、元器件、光学光电子等电子硬件领域",
+                      "positive_examples": ["某芯片公司量产28nm制程", "面板价格持续上涨"],
+                      "negative_examples": ["软件SaaS公司营收增长（应归为计算机）"]},
+                     {"value": "银行", "description": "涉及商业银行、政策性银行的信贷、存款、利率等业务",
+                      "positive_examples": ["央行降准释放流动性利好银行板块", "某银行不良贷款率下降"],
+                      "negative_examples": ["券商经纪业务收入增长（应归为非银金融）"]},
+                 ],
                  "min_value": None, "max_value": None},
                 {"name": "sentiment", "display_name": "情感倾向", "field_type": "enum",
                  "description": "文章对所属行业的情感倾向",
                  "enum_values": ["正面", "中性", "负面"],
+                 "enum_definitions": [
+                     {"value": "正面", "description": "文章整体看好该行业前景或报道利好消息",
+                      "positive_examples": ["预计行业增速将超预期", "龙头公司业绩大幅增长"],
+                      "negative_examples": ["客观陈述行业数据但无明确看法（应归为中性）"]},
+                     {"value": "负面", "description": "文章对该行业前景悲观或报道利空消息",
+                      "positive_examples": ["行业面临政策收紧风险", "多家公司业绩不及预期"],
+                      "negative_examples": ["提到短期调整但长期看好（应归为正面）"]},
+                 ],
                  "min_value": None, "max_value": None},
                 {"name": "confidence", "display_name": "置信度", "field_type": "float",
                  "description": "模型对判断结果的置信度",
-                 "enum_values": None, "min_value": 0.0, "max_value": 1.0},
+                 "enum_values": None, "enum_definitions": None, "min_value": 0.0, "max_value": 1.0},
                 {"name": "summary", "display_name": "摘要", "field_type": "string",
                  "description": "用一句话概括文章核心观点，50字以内",
-                 "enum_values": None, "min_value": None, "max_value": None},
+                 "enum_values": None, "enum_definitions": None, "min_value": None, "max_value": None},
             ]
             st.rerun()
 
@@ -210,18 +293,18 @@ with tab_schema:
             st.session_state.fields = [
                 {"name": "is_fund_manager", "display_name": "是否基金经理发言", "field_type": "bool",
                  "description": "判断文章是否为基金经理的观点发言",
-                 "enum_values": None, "min_value": None, "max_value": None},
+                 "enum_values": None, "enum_definitions": None, "min_value": None, "max_value": None},
                 {"name": "sectors", "display_name": "涉及板块", "field_type": "list[enum]",
                  "description": "文章涉及的板块（可多选）",
                  "enum_values": ["消费", "科技", "金融", "制造", "周期", "基建"],
-                 "min_value": None, "max_value": None},
+                 "enum_definitions": None, "min_value": None, "max_value": None},
                 {"name": "sentiment", "display_name": "情感倾向", "field_type": "enum",
                  "description": "基金经理对所提板块的整体态度",
                  "enum_values": ["正面", "中性", "负面"],
-                 "min_value": None, "max_value": None},
+                 "enum_definitions": None, "min_value": None, "max_value": None},
                 {"name": "key_opinion", "display_name": "核心观点", "field_type": "string",
                  "description": "提取基金经理的核心观点，100字以内",
-                 "enum_values": None, "min_value": None, "max_value": None},
+                 "enum_values": None, "enum_definitions": None, "min_value": None, "max_value": None},
             ]
             st.rerun()
 
@@ -230,17 +313,17 @@ with tab_schema:
             st.session_state.fields = [
                 {"name": "topic", "display_name": "主题", "field_type": "string",
                  "description": "新闻的核心主题，10字以内",
-                 "enum_values": None, "min_value": None, "max_value": None},
+                 "enum_values": None, "enum_definitions": None, "min_value": None, "max_value": None},
                 {"name": "sentiment_score", "display_name": "情感分数", "field_type": "float",
                  "description": "情感倾向分数，-1为极度负面，0为中性，1为极度正面",
-                 "enum_values": None, "min_value": -1.0, "max_value": 1.0},
+                 "enum_values": None, "enum_definitions": None, "min_value": -1.0, "max_value": 1.0},
                 {"name": "urgency", "display_name": "紧急程度", "field_type": "enum",
                  "description": "该新闻的紧急/重要程度",
                  "enum_values": ["高", "中", "低"],
-                 "min_value": None, "max_value": None},
+                 "enum_definitions": None, "min_value": None, "max_value": None},
                 {"name": "entities", "display_name": "相关实体", "field_type": "string",
                  "description": "新闻中提到的关键实体（公司、人物、机构），逗号分隔",
-                 "enum_values": None, "min_value": None, "max_value": None},
+                 "enum_values": None, "enum_definitions": None, "min_value": None, "max_value": None},
             ]
             st.rerun()
 

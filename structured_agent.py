@@ -25,6 +25,14 @@ from pydantic import BaseModel, Field, create_model
 # 1. 字段定义结构
 # ──────────────────────────────────────────────
 
+class EnumValueDefinition(BaseModel):
+    """单个枚举值的详细定义，包含描述和正反例"""
+    value: str = Field(description="枚举值")
+    description: str = Field(default="", description="该枚举值的含义描述")
+    positive_examples: list[str] = Field(default_factory=list, description="正例：符合该标签的典型文本片段")
+    negative_examples: list[str] = Field(default_factory=list, description="反例：容易误判为该标签但实际不属于的文本片段")
+
+
 class FieldDefinition(BaseModel):
     """用户定义的单个输出字段"""
     name: str = Field(description="字段名称（英文，作为 JSON key）")
@@ -36,6 +44,10 @@ class FieldDefinition(BaseModel):
     enum_values: list[str] | None = Field(
         default=None,
         description="当 field_type 为 enum 或 list[enum] 时，可选的枚举值列表",
+    )
+    enum_definitions: list[EnumValueDefinition] | None = Field(
+        default=None,
+        description="每个枚举值的详细定义（描述、正例、反例），可选",
     )
     min_value: float | None = Field(default=None, description="数值类型的最小值")
     max_value: float | None = Field(default=None, description="数值类型的最大值")
@@ -120,6 +132,22 @@ def build_field_desc_block(fields: list[FieldDefinition]) -> str:
             f"  - **{f.name}**（{f.display_name}）：{f.description}  \n"
             f"    类型：{type_info}"
         )
+
+        # 渲染枚举值的详细定义（描述 + 正反例）
+        if f.enum_definitions:
+            for ed in f.enum_definitions:
+                if not ed.description and not ed.positive_examples and not ed.negative_examples:
+                    continue
+                lines.append(f"    - 「{ed.value}」的判定标准：")
+                if ed.description:
+                    lines.append(f"      定义：{ed.description}")
+                if ed.positive_examples:
+                    examples = "；".join(ed.positive_examples)
+                    lines.append(f"      正例（应判为「{ed.value}」）：{examples}")
+                if ed.negative_examples:
+                    examples = "；".join(ed.negative_examples)
+                    lines.append(f"      反例（不应判为「{ed.value}」）：{examples}")
+
     return "\n".join(lines)
 
 
@@ -160,6 +188,7 @@ SYSTEM_TEMPLATE = """\
 - list[enum] 类型字段输出一个数组，元素只能来自给定的可选值
 - 如果文档中没有明确信息来填充某个字段，请根据文档内容做出最合理的推断
 - 浮点数和整数字段需遵守给定的取值范围
+- 如果某个枚举值提供了判定标准（定义、正例、反例），请严格参照这些标准进行判断，正例表示应归入该类别的情况，反例表示不应归入该类别的情况
 
 ## 输出格式
 
@@ -243,6 +272,20 @@ if __name__ == "__main__":
             field_type="enum",
             description="文章所属的申万一级行业",
             enum_values=["银行", "非银金融", "医药生物", "电子", "计算机", "食品饮料"],
+            enum_definitions=[
+                EnumValueDefinition(
+                    value="计算机",
+                    description="涉及软件开发、IT服务、云计算、信息安全、人工智能等计算机软硬件领域",
+                    positive_examples=["某国产数据库厂商获得大额政府订单", "AI大模型在金融风控中的应用"],
+                    negative_examples=["消费电子芯片出货量下滑（应归为电子）", "互联网平台广告收入增长（应归为传媒）"],
+                ),
+                EnumValueDefinition(
+                    value="电子",
+                    description="涉及半导体、消费电子、元器件、光学光电子等电子硬件领域",
+                    positive_examples=["某芯片公司量产28nm制程", "面板价格持续上涨"],
+                    negative_examples=["软件SaaS公司营收增长（应归为计算机）"],
+                ),
+            ],
         ),
         FieldDefinition(
             name="sentiment",
