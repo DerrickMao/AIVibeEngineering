@@ -79,14 +79,14 @@ ConceptType = Literal[
 # ──────────────────────────────────────────────
 
 class FundManagerView(BaseModel):
-    """单个基金经理的观点打标结果"""
+    """单个基金经理的观点打标结果（宽松类型，避免 LLM 输出非标值时解析失败）"""
     manager_name: str = Field(description="基金经理姓名")
     fund_company: str = Field(description="基金公司名称")
     original_view: str = Field(description="该基金经理的原始观点文本，从原文中提取")
-    sectors: list[SectorType] = Field(description="涉及的板块，从可选值中选取，可多选，无则为空数组")
-    industries: list[IndustryType] = Field(description="涉及的申万一级行业，从可选值中选取，可多选，无则为空数组")
-    concepts: list[ConceptType] = Field(description="涉及的概念/主题，从可选值中选取，可多选，无则为空数组")
-    sentiment: SentimentType = Field(description="该基金经理观点的情感倾向：正面、中性、负面")
+    sectors: list[str] = Field(description="涉及的板块，从可选值中选取，可多选，无则为空数组")
+    industries: list[str] = Field(description="涉及的申万一级行业，从可选值中选取，可多选，无则为空数组")
+    concepts: list[str] = Field(description="涉及的概念/主题，从可选值中选取，可多选，无则为空数组")
+    sentiment: str = Field(description="该基金经理观点的情感倾向：正面、中性、负面")
 
 
 class FundManagerViewList(BaseModel):
@@ -227,10 +227,16 @@ async def label_fund_manager_views(req: ApiRequest):
 
     try:
         result: FundManagerViewList = chain.invoke({"content": req.queryContent})
-        data = [
-            FundManagerViewResponse(**view.model_dump())
-            for view in result.views
-        ]
+        data = []
+        for view in result.views:
+            d = view.model_dump()
+            # 过滤不在枚举列表中的值，保留合法值
+            d["sectors"] = [v for v in d["sectors"] if v in SECTOR_VALUES]
+            d["industries"] = [v for v in d["industries"] if v in INDUSTRY_VALUES]
+            d["concepts"] = [v for v in d["concepts"] if v in CONCEPT_VALUES]
+            if d["sentiment"] not in SENTIMENT_VALUES:
+                d["sentiment"] = "中性"  # 兜底
+            data.append(FundManagerViewResponse(**d))
         return ApiResponse(code=0, data=data, msg="")
 
     except Exception as e:
