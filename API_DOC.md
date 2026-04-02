@@ -22,9 +22,46 @@
 
 ```json
 {
-  "queryContent": "在信息过载、风格轮动加速的当下，投资似乎变得越来越"难"。当一个产业的变革周期从一年缩短至一个月，当市场的每一次情绪波动都能在交易层面被迅速放大，如何持续捕获超额收益？"
+  "queryContent": "在信息过载、风格轮动加速的当下，投资似乎变得越来越\"难\"。当一个产业的变革周期从一年缩短至一个月，当市场的每一次情绪波动都能在交易层面被迅速放大，如何持续捕获超额收益？"
 }
 ```
+
+### 长文本转义注意事项
+
+`queryContent` 的值是 JSON 字符串，当文章内容较长或包含特殊字符时，**必须进行正确的 JSON 转义**，否则会导致请求解析失败（HTTP 422）。
+
+| 原始字符 | JSON 中必须转义为 | 说明 |
+|----------|-------------------|------|
+| `"` (双引号) | `\"` | 最常见，文章中的引用、书名号内容等 |
+| `\` (反斜杠) | `\\` | 如路径、转义序列 |
+| 换行符 | `\n` | 文章分段时使用 `\n` 代替真实换行 |
+| 制表符 | `\t` | 表格类内容 |
+| HTML 标签 | 原样传入即可 | `<p>`、`<br>` 等无需额外转义 |
+
+**Java 示例**（使用 Jackson 自动处理转义）：
+```java
+ObjectMapper mapper = new ObjectMapper();
+Map<String, String> body = Map.of("queryContent", articleContent);
+String json = mapper.writeValueAsString(body);  // 自动转义所有特殊字符
+```
+
+**Python 示例**（使用 requests 库自动处理）：
+```python
+import requests
+# json 参数会自动序列化，无需手动转义
+resp = requests.post(url, json={"queryContent": article_content})
+```
+
+**curl 示例**（长文本建议从文件读取，避免手动转义）：
+```bash
+# 将文章内容写入 JSON 文件
+echo '{"queryContent": "文章内容..."}' > request.json
+curl -X POST http://124.223.42.93:8000/api/fund-manager/label \
+  -H "Content-Type: application/json" \
+  -d @request.json
+```
+
+> **建议**：不要手动拼接 JSON 字符串，使用语言自带的 JSON 序列化库（Java 的 Jackson/Gson、Python 的 json 模块）可以自动处理所有转义问题。
 
 ---
 
