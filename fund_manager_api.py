@@ -21,10 +21,10 @@ from pydantic import BaseModel, Field
 # 配置（优先读环境变量，否则用默认值）
 # ──────────────────────────────────────────────
 
-LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-xxx")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-xxx") # 环境变量中替换为客户环境的实际 API Key
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com") # 环境变量中替换为客户环境的实际 URL
 LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-chat")
-LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
+LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0")) # 温度设置为0，以获得更稳定的输出结果
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -78,7 +78,8 @@ ConceptType = Literal[
 # Pydantic 模型：LLM 输出结构
 # ──────────────────────────────────────────────
 
-class FundManagerView(BaseModel):
+# 利用 Pydantic 定义 LLM 输出的结构，方便后续解析和数据验证
+class FundManagerView(BaseModel): 
     """单个基金经理的观点打标结果（宽松类型，避免 LLM 输出非标值时解析失败）"""
     manager_name: str = Field(description="基金经理姓名")
     fund_company: str = Field(description="基金公司名称")
@@ -88,7 +89,7 @@ class FundManagerView(BaseModel):
     concepts: list[str] = Field(description="涉及的概念/主题，从可选值中选取，可多选，无则为空数组")
     sentiment: str = Field(description="该基金经理观点的情感倾向：正面、中性、负面")
 
-
+# LLM 输出的顶层结构，包含所有基金经理的观点列表
 class FundManagerViewList(BaseModel):
     """基金经理观点列表（LLM 输出的顶层结构）"""
     views: list[FundManagerView] = Field(description="从文章中提取的所有基金经理观点列表，如果文章中没有基金经理观点则为空数组")
@@ -213,7 +214,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-
+# 进行相关的输入校验和错误处理，确保接口的健壮性和稳定性
 @app.post("/api/fund-manager/label", response_model=ApiResponse)
 async def label_fund_manager_views(req: ApiRequest):
     """
